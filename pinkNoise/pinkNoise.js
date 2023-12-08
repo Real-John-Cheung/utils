@@ -5,10 +5,14 @@ class PinkNoise {
 
     /**
      * 
-     * @param {bigint} seed 
+     * @param {Object} opts 
+     * @param {number} opts.seed seed for RNG
+     * @param {number} opts.start positive int
      */
-    constructor(seed = defaultSeed){
-        this.counter = 0;
+    constructor(opts){
+        let seed = opts && opts.seed ? opts.seed : undefined;
+        this.counter = opts && opts.start ? opts.start : 0;
+        this.counter = this.counter % trailingZero.length;
         this.rand = new MiddleSquareRand(seed);
         this.octaveVals = new Array(9).fill(0);
         this.out = 0;
@@ -21,7 +25,7 @@ class PinkNoise {
         let octave = trailingZero[this.counter];
 
         this.out -= this.octaveVals[octave];
-        this.octaveVals[octave] = this.rand.nextInt() / 2147483647;
+        this.octaveVals[octave] = this.rand.next() / (2147483647*2);
         this.octaveVals[octave] /= 10 - octave;
         this.out += this.octaveVals[octave];
         this.counter ++;

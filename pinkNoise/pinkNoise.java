@@ -4,12 +4,12 @@ import java.util.*;
 /**
  * pink Noise based on https://gist.github.com/tom-merchant/5ced03a0638b06138ee7d11c0c209aa4 
  */
-class PinkNoise{
+public class PinkNoise{
 
     /**
      * https://commons.apache.org/proper/commons-rng/commons-rng-core/jacoco/org.apache.commons.rng.core.source32/MiddleSquareWeylSequence.java.html 
      */
-    static class MiddleSquareRand {
+    static private class MiddleSquareRand {
         private static final int SEED_SIZE = 3;
         private static final long[] DEFAULT_SEED = {0x012de1babb3c4104L, 0xc8161b4202294965L, 0xb5ad4eceda1ce2a9L};
         private long s, w, x;
@@ -76,7 +76,7 @@ class PinkNoise{
      * 
      * @param seed
      */
-    PinkNoise(long[] seed){
+    public PinkNoise(long[] seed){
         this.rand = new MiddleSquareRand(seed);
         this.counter = 0;
         this.octaveVals = new double[9];
@@ -86,21 +86,36 @@ class PinkNoise{
     /**
      * 
      */
-    PinkNoise(){
+    public PinkNoise(){
         this.rand = new MiddleSquareRand();
         this.counter = 0;
         this.octaveVals = new double[9];
         this.out = 0;
     }
 
+    public PinkNoise(int start){
+        this.rand = new MiddleSquareRand();
+        this.counter = start % trailingZero.length;
+        this.octaveVals = new double[9];
+        this.out = 0;
+    }
+
+    public PinkNoise(long[] seed, int start){
+        this.rand = new MiddleSquareRand(seed);
+        this.counter = start % trailingZero.length;
+        this.octaveVals = new double[9];
+        this.out = 0;
+    }
+
     /**
      * 
-     * @return the next noise value;
+     * @return the next noise value, range around 0 - 1.8;
      */
-    double next(){
+    public double next(){
         int octave = trailingZero[this.counter];
         this.out -= this.octaveVals[octave];
         this.octaveVals[octave] = (double)this.rand.nextInt() / (double)2147483647;
+        this.octaveVals[octave]  = (this.octaveVals[octave] + 1.0) / 2.0;
         this.octaveVals[octave] /= 10 - octave;
         this.out += this.octaveVals[octave];
         this.counter ++;
