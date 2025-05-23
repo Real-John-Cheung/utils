@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+
+<head>
+    <title>SVG Collision Box</title>
+    <script src="./decomp.min.js"></script>
+    <script src="./concaveman.umd.js"></script>
+    <script src="./clipper.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/simplify-js@1.2.4/simplify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-path-properties@1.2.0/dist/svg-path-properties.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+</head>
+
+<body>
+    <div id="des">
+        <p>
+        <h1>SVG Collision Box</h1>
+        <p>By <a href="https://johncheung.art">JohnC</a></p>
+        <p>Generate the approximate polygon collision box from an svg path.</p>
+        <p>You can paste the <code>path d</code> attribute string or upload an svg file (only the first path in that
+            file will be used)</p>
+        <p>Use the below canvas to preview the collision box (in green line) and adjust parameters as needed</p>
+        <p>Parameters:</p>
+        <p>Sample Rate: [default = 1] the sampling frequency for turning the svg path to vertices, the higher the number
+            the fewer points will be sampled.</p>
+        <p>Concavity: [default = 1] a relative measure of concavity, <code>0</code> results in a hull linking all points
+            (super concave), <code>Infinity</code> results in a convex hull.</p>
+        <p>Length Threshold: [default = 5] when a segment length is under this threshold, it stops being considered for
+            further detalization.</p>
+        <p>Pre-process: [default = true] if true points will be pre-process before simplification.</p>
+        <p>RPD Tolerance: [default = 1] affects the amount of simplification, the higher the number the simpler the
+            polygon
+            returned will be.</p>
+        <p>Scale: [default = 1] inflate or shrink the collision box by the given number.</p>
+        </p>
+    </div>
+    <div id="c"></div>
+    <div id="ctl">
+        <input type="button" value="generate" onclick="gen()"><br>
+        <form id="f">
+            <p>
+                <label for="d">path d String</label><input type="text" placeholder="paste the path d string here"
+                    id="d"> or upload svg file <input type="file" id="file" accept="image/svg+xml"
+                    onchange="loadSvgFile()">
+            </p>
+            <p>
+                <label for="sr">Sample Rate</label><input type="number" value="1" id="sr" step="1"
+                    min="1">&nbsp;&nbsp;&nbsp;
+                <label for="con">Concavity</label><input type="number" value="1" id="con" step="0.1"
+                    min="0">&nbsp;&nbsp;&nbsp;
+                <label for="lt">Length Threshold</label><input type="number" value="5" id="lt" step="0.1"
+                    min="0">
+            </p>
+            <p>
+                <label for="prep">Pre-process</label><input type="checkbox" checked id="prep">&nbsp;&nbsp;&nbsp;
+                <label for="to">RPD Tolerance</label><input type="number" value="1" id="to" step="0.1"
+                    min="0">&nbsp;&nbsp;&nbsp;
+                <label for="sc">Scale</label><input type="number" value="1" id="sc" step="0.1"
+                    min="0">&nbsp;&nbsp;&nbsp;
+            </p>
+        </form>
+    </div>
+    <div>
+        <p>Result collision box: (click to copy) points count:<span id="pNo"></span></p>
+        <p><code><span id="res"></span></code></p>
+    </div>
+    <script>
+        const parser = new DOMParser();
+        const file = document.getElementById("file");
+        const srInput = document.getElementById("sr");
+        const conInput = document.getElementById("con");
+        const ltInput = document.getElementById("lt");
+        const toInput = document.getElementById("to");
+        const scInput = document.getElementById("sc");
+        const dInput = document.getElementById("d");
+        const resDisplay = document.getElementById("res");
+        const pNoDisplay = document.getElementById("pNo");
+        const prepInput = document.getElementById("prep");
+        resDisplay.onclick = () => {
+            document.execCommand("copy");
+        }
+        resDisplay.addEventListener("copy", (e) => {
+            e.preventDefault();
+            if (e.clipboardData) {
+                e.clipboardData.setData("text/plain", resDisplay.textContent);
+            }
+        })
+        let dStr = "";
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            let svgData = e.target.result;
+            let doc = parser.parseFromString(svgData, "image/svg+xml");
+            dStr = doc.getElementsByTagName("path")[0].getAttribute('d');
+        }
+
+        const theP5 = new p5(s => {
+            s.setup = function () {
+                s.createCanvas(600, 600);
+                s.background(0);
+                s.translate(200, 200);
+            }
+
+            s.renderBox = function (box, dStr, offset, bb) {
+                s.background(0);
+                //scale to fix
+                const w = bb.max.x - bb.min.x;
+                const h = bb.max.y - bb.min.y;
+                const scale = (s.width / 2) / Math.max(w, h);
+                const preview = box.map(v => ({
+                    x: (v.x - bb.min.x) * scale,
+                    y: (v.y - bb.min.y) * scale
+                }));
+                // ori
+                s.fill(150);
+                s.fillSVG(dStr, scale, offset);
+                // box
+                s.noFill();
+                s.stroke(0, 255, 0);
+                s.beginShape();
+                preview.forEach(p => {
+                    s.vertex(p.x, p.y);
+                });
+                s.endShape(s.CLOSE);
+            }
+
+            s.fillSVG = function (input, scale, offset) {
+                const ctx = s.drawingContext;
+                const path = new Path2D(input);
+                ctx.save();
+                ctx.scale(scale, scale);
+                ctx.translate(-offset.x, -offset.y);
+                ctx.fill(path, "evenodd");
+                ctx.restore();
+            }
+        }, "c");
+
+        function svgPath2Vertices(dStr, sampleRate = 1) {
+            const props = new svgPathProperties.svgPathProperties(dStr);
+            const length = props.getTotalLength();
+            const points = [];
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (let i = 0; i <= length; i += sampleRate) {
+                let { x, y } = props.getPointAtLength(i);
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                points.push({ x, y });
+            }
+            return {v:points, b :{min:{x:minX, y:minY}, max:{x:maxX, y:maxY}}};
+        }
+
+        function vertices2HitBox(vertices, concavity, lengthTH, tolerance, sc, prep) {
+            const v = vertices.map(p => [p.x, p.y]);
+            const hull = concaveman(v, concavity, lengthTH);
+            if (sc !== 1) {
+                const clipperInput = hull.map(p => ({
+                    X: Math.round(p[0] * 10000),
+                    Y: Math.round(p[1] * 10000),
+                }))
+                const co = new ClipperLib.ClipperOffset();
+                co.AddPath(clipperInput, ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+
+                const inflatedPaths = [];
+                co.Execute(inflatedPaths, sc * 10000);
+                const newHull = inflatedPaths[0].map(p => ({
+                    x: p.X / 10000,
+                    y: p.Y / 10000,
+                }));
+                return simplify(newHull, tolerance, prep);
+            }
+            return simplify(hull.map(([x, y]) => ({ x, y })), tolerance, prep);
+        }
+
+        function gen() {
+            const str = dInput.value || dStr;
+            const sr = parseInt(srInput.value);
+            const con = parseFloat(conInput.value);
+            const lt = parseFloat(ltInput.value);
+            const to = parseFloat(toInput.value);
+            const sc = parseFloat(scInput.value);
+            const prep = prepInput.checked;
+
+            const {v, b} = svgPath2Vertices(str, sr);
+            let box = vertices2HitBox(v, con, lt, to, sc, prep);
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            for (let v of box) {
+                if (v.x < minX) minX = v.x;
+                if (v.x > maxX) maxX = v.x;
+                if (v.y < minY) minY = v.y;
+                if (v.y > maxY) maxY = v.y;
+            }
+            const bb = {min:{x:minX, y:minY}, max:{x:maxX, y:maxY}}
+            const offset = {x: bb.min.x - b.min.x, y: bb.min.y - b.min.y}            
+            theP5.renderBox(box, str, offset, bb);
+            const rStr = JSON.stringify(box)
+            resDisplay.innerText = rStr;
+            pNoDisplay.innerText = box.length;
+        }
+
+        function loadSvgFile(e) {
+            reader.readAsText(file.files[0]);
+        }
+
+        function renderPreview() {
+
+        }
+
+
+    </script>
+</body>
